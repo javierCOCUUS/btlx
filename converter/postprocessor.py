@@ -52,6 +52,9 @@ SetupPolicy = _local_setups.SetupPolicy
 build_setup_plan = _local_setups.build_setup_plan
 plan_to_json = _local_setups.plan_to_json
 
+MACHINE_X_MAX = 1300.0
+MACHINE_Y_MAX = 2500.0
+
 
 def _local(tag: str) -> str:
     if "}" in tag:
@@ -91,6 +94,25 @@ def _build_part_setup_index(parts: list[dict[str, Any]], split_testa_setups: boo
         for op in grp.operations:
             out[(str(op.part_number), int(op.op_index))] = int(sid)
     return out
+
+
+def _validate_machine_limits(parts: list[dict[str, Any]]) -> None:
+    """
+    Validate that part bounding dimensions fit machine envelope:
+      X uses BTLx Width
+      Y uses BTLx Length
+    """
+    issues: list[str] = []
+    for p in parts:
+        num = str(p.get("number", ""))
+        length = float(p.get("length", 0.0) or 0.0)
+        width = float(p.get("width", 0.0) or 0.0)
+        if length > MACHINE_Y_MAX + 1e-6:
+            issues.append(f"part {num}: Length={length:.3f} > Ymax={MACHINE_Y_MAX:.3f}")
+        if width > MACHINE_X_MAX + 1e-6:
+            issues.append(f"part {num}: Width={width:.3f} > Xmax={MACHINE_X_MAX:.3f}")
+    if issues:
+        raise ValueError("Pieza fuera de limites de maquina:\\n" + "\\n".join(issues))
 
 
 def _convert_split_by_part_setup(
@@ -238,6 +260,8 @@ def run_postprocessor(
         raise FileNotFoundError(f"Input BTLx not found: {inp}")
 
     out.parent.mkdir(parents=True, exist_ok=True)
+    parsed_parts = parse_btlx(inp)
+    _validate_machine_limits(parsed_parts)
 
     if split_by_part_setup:
         split_res = _convert_split_by_part_setup(
@@ -266,9 +290,8 @@ def run_postprocessor(
         )
         converted_ops = int(rep.converted_ops)
         skipped_ops = int(rep.skipped_ops)
-        parts = parse_btlx(inp)
         policy = SetupPolicy(split_testa_setups=split_testa_setups)
-        plan = build_setup_plan(parts, policy=policy)
+        plan = build_setup_plan(parsed_parts, policy=policy)
         setup_payload = plan_to_json(plan)
         generated_files = []
 
@@ -289,6 +312,7 @@ def run_postprocessor(
         "local_origin": local_origin,
         "split_by_part_setup": split_by_part_setup,
         "generated_files": generated_files,
+        "machine_limits": {"x_max": MACHINE_X_MAX, "y_max": MACHINE_Y_MAX},
     }
 
 

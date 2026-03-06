@@ -38,6 +38,10 @@ en el editor del componente GhPython.
 - `split_testa_setups`: `True`
 - `split_by_part_setup`: `False` (pon `True` para sacar un .ngc por viga+setup)
 
+Notas:
+- Si conectas `tools_json_path` con tu `tools.json` de Fusion, el post usa RPM, feed, plunge, ramp feed, rampa y pasos de mecanizado cuando estén definidos.
+- El post valida limites de máquina (X=1300, Y=2500) y falla si una pieza no cabe.
+
 ## 4) Ejecutar
 - Cambia `run` a `True`.
 - Si todo va bien:
