@@ -9,22 +9,46 @@ Uses the converter in src/btlx2gcode/post.py and adds:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
 from typing import Any
 
-# Ensure `src` package is importable when running from converter folder.
+# Paths
 THIS_DIR = Path(__file__).resolve().parent
 ROOT_DIR = THIS_DIR.parent
 SRC_DIR = ROOT_DIR / "src"
+
+# Ensure local converter modules are resolved first (parser.py, setups.py, faces.py)
+if str(THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_DIR))
+
+# Ensure btlx2gcode package is importable
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from btlx2gcode.post import convert_file  # type: ignore
 
-from parser import parse_btlx
-from setups import SetupPolicy, build_setup_plan, plan_to_json
+
+def _load_local_module(name: str, filename: str):
+    path = THIS_DIR / filename
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module {name} from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_local_parser = _load_local_module("converter_local_parser", "parser.py")
+_local_setups = _load_local_module("converter_local_setups", "setups.py")
+
+parse_btlx = _local_parser.parse_btlx
+SetupPolicy = _local_setups.SetupPolicy
+build_setup_plan = _local_setups.build_setup_plan
+plan_to_json = _local_setups.plan_to_json
 
 
 def run_postprocessor(
@@ -52,7 +76,6 @@ def run_postprocessor(
 
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    # Main G-code conversion
     rep = convert_file(
         input_path=str(inp),
         output_path=str(out),
@@ -63,7 +86,6 @@ def run_postprocessor(
         local_origin=local_origin,
     )
 
-    # Optional setup plan export (for flip/setup validation)
     if setup_json:
         parts = parse_btlx(inp)
         policy = SetupPolicy(split_testa_setups=split_testa_setups)
@@ -73,7 +95,7 @@ def run_postprocessor(
         sp.parent.mkdir(parents=True, exist_ok=True)
         sp.write_text(json.dumps(setup_payload, indent=2), encoding="utf-8")
 
-    result = {
+    return {
         "input": str(inp),
         "output_ngc": str(out),
         "report_json": report_json,
@@ -84,7 +106,6 @@ def run_postprocessor(
         "no_toolchange": no_toolchange,
         "local_origin": local_origin,
     }
-    return result
 
 
 def _build_cli() -> argparse.ArgumentParser:
@@ -115,3 +136,4 @@ if __name__ == "__main__":
         split_testa_setups=not args.single_testa_setup,
     )
     print(json.dumps(res, indent=2))
+
