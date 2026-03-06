@@ -12,6 +12,7 @@ Crea un componente GhPython y define estos **inputs**:
 - `no_toolchange` (bool)
 - `local_origin` (bool)
 - `split_testa_setups` (bool)
+- `split_by_part_setup` (bool)
 
 Define estos **outputs**:
 - `ok`
@@ -35,6 +36,7 @@ en el editor del componente GhPython.
 - `no_toolchange`: `False` (en tu máquina, Tn M6 está bien)
 - `local_origin`: `False`
 - `split_testa_setups`: `True`
+- `split_by_part_setup`: `False` (pon `True` para sacar un .ngc por viga+setup)
 
 ## 4) Ejecutar
 - Cambia `run` a `True`.

@@ -9,6 +9,7 @@ Inputs expected in Grasshopper component:
 - tools_json_path (str, optional)
 - no_toolchange (bool)
 - local_origin (bool)
+- split_by_part_setup (bool)
 - run (bool)
 
 Outputs:
@@ -47,6 +48,7 @@ if run:
             no_toolchange=bool(no_toolchange),
             local_origin=bool(local_origin),
             split_testa_setups=True,
+            split_by_part_setup=bool(split_by_part_setup),
         )
         ok = True
         message = "OK"

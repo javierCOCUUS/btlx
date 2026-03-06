@@ -21,6 +21,16 @@ from faces import FACE_DEFAULT_SETUP, FACE_FLIP_INSTRUCTION
 SetupId = int
 
 
+FACE_HUMAN_LABEL = {
+    1: "bottom",
+    2: "top",
+    3: "left",
+    4: "start_end",
+    5: "right",
+    6: "end_end",
+}
+
+
 # Operations that are usually "through/angle cuts" rather than pockets.
 CUT_LIKE_TYPES = {
     "JackRafterCut",
@@ -64,6 +74,7 @@ class SetupOperation:
     part_name: str
     part_number: str
     op_guid: str
+    op_index: int
     op_name: str
     op_type: str
     face: int | None
@@ -191,7 +202,7 @@ def build_setup_plan(
         part_name = str(part.get("name", ""))
         part_number = str(part.get("number", ""))
 
-        for op in part.get("operations", []):
+        for op_idx, op in enumerate(part.get("operations", [])):
             op_guid = str(op.get("guid", ""))
             op_name = str(op.get("name", op.get("type", "")))
             op_type = str(op.get("type", "Unknown"))
@@ -210,6 +221,7 @@ def build_setup_plan(
                 part_name=part_name,
                 part_number=part_number,
                 op_guid=op_guid,
+                op_index=op_idx,
                 op_name=op_name,
                 op_type=op_type,
                 face=face if isinstance(face, int) else None,
@@ -255,7 +267,7 @@ def plan_as_text(plan: SetupPlan, detailed: bool = False) -> str:
             for op in grp.operations:
                 face_txt = "?" if op.face is None else str(op.face)
                 lines.append(
-                    f"    - part={op.part_number} op={op.op_type} face={face_txt} ref={op.reference_plane_id} -> setup {op.setup} ({op.reason})"
+                    f"    - part={op.part_number} op_idx={op.op_index} op={op.op_type} face={face_txt} ref={op.reference_plane_id} -> setup {op.setup} ({op.reason})"
                 )
 
     if plan.unresolved:
@@ -275,9 +287,11 @@ def plan_to_json(plan: SetupPlan) -> dict[str, Any]:
                         "part_name": o.part_name,
                         "part_number": o.part_number,
                         "op_guid": o.op_guid,
+                        "op_index": o.op_index,
                         "op_name": o.op_name,
                         "op_type": o.op_type,
                         "face": o.face,
+                        "face_human": FACE_HUMAN_LABEL.get(o.face),
                         "reference_plane_id": o.reference_plane_id,
                         "setup": o.setup,
                         "reason": o.reason,

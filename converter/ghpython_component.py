@@ -12,6 +12,7 @@ Inputs expected in Grasshopper:
 - no_toolchange (bool)
 - local_origin (bool)
 - split_testa_setups (bool)
+- split_by_part_setup (bool)
 
 Outputs:
 - ok (bool)
@@ -65,6 +66,7 @@ if run:
         from postprocessor import run_postprocessor
 
         setup_flag = True if split_testa_setups is None else bool(split_testa_setups)
+        split_part_setup_flag = False if split_by_part_setup is None else bool(split_by_part_setup)
 
         result = run_postprocessor(
             input_btlx=btlx_path,
@@ -76,6 +78,7 @@ if run:
             no_toolchange=bool(no_toolchange),
             local_origin=bool(local_origin),
             split_testa_setups=setup_flag,
+            split_by_part_setup=split_part_setup_flag,
         )
 
         ok = True
