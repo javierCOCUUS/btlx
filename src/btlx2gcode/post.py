@@ -106,8 +106,18 @@ def _num(params: dict, key: str, default: float = 0.0) -> float:
         return default
 
 
-def _load_toolset(tools_json_path: str | None) -> dict[int, dict[str, float]]:
+def _load_toolset(
+    tools_json_path: str | None,
+    db_tool_numbers: dict[int, int] | None = None,
+) -> dict[int, dict[str, float]]:
     toolset = {k: dict(v) for k, v in DEFAULT_TOOLSET.items()}
+    # Logical machine mapping (fixed by your machine):
+    #   T1 drill, T2 roughing, T3 finishing
+    select = dict(db_tool_numbers or {})
+    select.setdefault(TOOL_DRILL, 1)
+    select.setdefault(TOOL_FLAT, 2)
+    select.setdefault(TOOL_FINISH, 3)
+    reverse_select = {int(v): int(k) for k, v in select.items()}
     if not tools_json_path:
         return toolset
     p = Path(tools_json_path)
@@ -135,19 +145,19 @@ def _load_toolset(tools_json_path: str | None) -> dict[int, dict[str, float]]:
         if post_num is None:
             expr = row.get("expressions") or {}
             post_num = expr.get("tool_number")
-        if post_num not in (TOOL_DRILL, TOOL_FLAT, TOOL_FINISH):
+        if post_num not in reverse_select:
             try:
                 post_num = int(float(post_num))
             except Exception:
                 continue
-        if post_num not in (TOOL_DRILL, TOOL_FLAT, TOOL_FINISH):
+        if post_num not in reverse_select:
             continue
 
         geometry = row.get("geometry") or {}
         presets = ((row.get("start-values") or {}).get("presets") or [])
         preset = presets[0] if presets and isinstance(presets[0], dict) else {}
         try:
-            t = int(post_num)
+            t = reverse_select[int(post_num)]
             diameter = float(
                 row.get(
                     "diameter_mm",
@@ -401,13 +411,14 @@ def _tool_change(
     stepdown = cfg.get("stepdown_mm", 0.0)
     stepover = cfg.get("stepover_mm", 0.0)
     ramp_angle = cfg.get("ramp_angle_deg", 0.0)
+    diameter = cfg.get("diameter_mm", 0.0)
     if machine_profile == "elephant3spindle":
         if do_toolchange:
             lines.extend(
                 [
                     "M5",
                     "M9",
-                    f"(Tool T{tool}: RPM={rpm} F={feed:.1f} Fplunge={plunge:.1f} Framp={ramp_feed:.1f} stepdown={stepdown:.3f} stepover={stepover:.3f} rampAngle={ramp_angle:.2f})",
+                    f"(Tool T{tool}: D={diameter:.3f} RPM={rpm} F={feed:.1f} Fplunge={plunge:.1f} Framp={ramp_feed:.1f} stepdown={stepdown:.3f} stepover={stepover:.3f} rampAngle={ramp_angle:.2f})",
                     f"T{tool}M6",
                     f"S{rpm} M3",
                     "M9",
@@ -420,7 +431,7 @@ def _tool_change(
                     "M5",
                     "M9",
                     f"(Toolchange skipped - using active spindle as T{tool})",
-                    f"(Tool T{tool}: RPM={rpm} F={feed:.1f} Fplunge={plunge:.1f} Framp={ramp_feed:.1f} stepdown={stepdown:.3f} stepover={stepover:.3f} rampAngle={ramp_angle:.2f})",
+                    f"(Tool T{tool}: D={diameter:.3f} RPM={rpm} F={feed:.1f} Fplunge={plunge:.1f} Framp={ramp_feed:.1f} stepdown={stepdown:.3f} stepover={stepover:.3f} rampAngle={ramp_angle:.2f})",
                     f"S{rpm} M3",
                     "M9",
                     f"G0 Z{SAFE_Z:.3f}",
@@ -877,9 +888,10 @@ def convert_file(
     no_toolchange: bool = False,
     local_origin: bool = False,
     strict_tool_map: bool = False,
+    db_tool_numbers: dict[int, int] | None = None,
 ) -> ConversionReport:
     program = parse_btlx(input_path)
-    toolset = _load_toolset(tools_json_path)
+    toolset = _load_toolset(tools_json_path, db_tool_numbers=db_tool_numbers)
     lines: list[str] = []
     _emit_header(lines, machine_profile)
 

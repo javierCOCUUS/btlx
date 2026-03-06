@@ -14,6 +14,9 @@ Crea un componente GhPython y define estos **inputs**:
 - `split_testa_setups` (bool)
 - `split_by_part_setup` (bool)
 - `strict_tool_map` (bool)
+- `db_tool_drill` (int, opcional)
+- `db_tool_rough` (int, opcional)
+- `db_tool_finish` (int, opcional)
 
 Define estos **outputs**:
 - `ok`
@@ -39,9 +42,13 @@ en el editor del componente GhPython.
 - `split_testa_setups`: `True`
 - `split_by_part_setup`: `False` (pon `True` para sacar un .ngc por viga+setup)
 - `strict_tool_map`: `True` (recomendado: falla si hay operación sin mapeo T1/T2/T3)
+- `db_tool_drill`: vacío o número de herramienta en tu tools.json para T1
+- `db_tool_rough`: vacío o número de herramienta en tu tools.json para T2
+- `db_tool_finish`: vacío o número de herramienta en tu tools.json para T3
 
 Notas:
 - Si conectas `tools_json_path` con tu `tools.json` de Fusion, el post usa RPM, feed, plunge, ramp feed, rampa y pasos de mecanizado cuando estén definidos.
+- Con `db_tool_*` eliges qué tool-number de la librería alimenta cada mandril lógico T1/T2/T3.
 - El post valida limites de máquina (X=1300, Y=2500) y falla si una pieza no cabe.
 
 ## 4) Ejecutar

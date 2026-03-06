@@ -11,6 +11,9 @@ Inputs expected in Grasshopper component:
 - local_origin (bool)
 - split_by_part_setup (bool)
 - strict_tool_map (bool)
+- db_tool_drill (int, optional)
+- db_tool_rough (int, optional)
+- db_tool_finish (int, optional)
 - run (bool)
 
 Outputs:
@@ -51,6 +54,9 @@ if run:
             split_testa_setups=True,
             split_by_part_setup=bool(split_by_part_setup),
             strict_tool_map=bool(strict_tool_map) if strict_tool_map is not None else True,
+            db_tool_drill=int(db_tool_drill) if db_tool_drill not in (None, "") else None,
+            db_tool_rough=int(db_tool_rough) if db_tool_rough not in (None, "") else None,
+            db_tool_finish=int(db_tool_finish) if db_tool_finish not in (None, "") else None,
         )
         ok = True
         message = "OK"

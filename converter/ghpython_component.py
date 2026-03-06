@@ -14,6 +14,9 @@ Inputs expected in Grasshopper:
 - split_testa_setups (bool)
 - split_by_part_setup (bool)
 - strict_tool_map (bool)
+- db_tool_drill (int, opcional)
+- db_tool_rough (int, opcional)
+- db_tool_finish (int, opcional)
 
 Outputs:
 - ok (bool)
@@ -82,6 +85,9 @@ if run:
             split_testa_setups=setup_flag,
             split_by_part_setup=split_part_setup_flag,
             strict_tool_map=strict_tool_flag,
+            db_tool_drill=int(db_tool_drill) if db_tool_drill not in (None, "") else None,
+            db_tool_rough=int(db_tool_rough) if db_tool_rough not in (None, "") else None,
+            db_tool_finish=int(db_tool_finish) if db_tool_finish not in (None, "") else None,
         )
 
         ok = True

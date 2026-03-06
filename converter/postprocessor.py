@@ -126,6 +126,7 @@ def _convert_split_by_part_setup(
     local_origin: bool,
     split_testa_setups: bool,
     strict_tool_map: bool,
+    db_tool_numbers: dict[int, int] | None,
 ) -> dict[str, Any]:
     """
     Generate one G-code per part/setup:
@@ -216,6 +217,7 @@ def _convert_split_by_part_setup(
                     no_toolchange=no_toolchange,
                     local_origin=local_origin,
                     strict_tool_map=strict_tool_map,
+                    db_tool_numbers=db_tool_numbers,
                 )
                 total_converted += int(rep.converted_ops)
                 total_skipped += int(rep.skipped_ops)
@@ -250,6 +252,9 @@ def run_postprocessor(
     split_testa_setups: bool = True,
     split_by_part_setup: bool = False,
     strict_tool_map: bool = True,
+    db_tool_drill: int | None = None,
+    db_tool_rough: int | None = None,
+    db_tool_finish: int | None = None,
 ) -> dict[str, Any]:
     """
     Convert BTLx to Mach3 G-code and optionally emit setup report.
@@ -265,6 +270,11 @@ def run_postprocessor(
     out.parent.mkdir(parents=True, exist_ok=True)
     parsed_parts = parse_btlx(inp)
     _validate_machine_limits(parsed_parts)
+    db_tool_numbers = {
+        1: int(db_tool_drill) if db_tool_drill is not None else 1,
+        2: int(db_tool_rough) if db_tool_rough is not None else 2,
+        3: int(db_tool_finish) if db_tool_finish is not None else 3,
+    }
 
     if split_by_part_setup:
         split_res = _convert_split_by_part_setup(
@@ -277,6 +287,7 @@ def run_postprocessor(
             local_origin=local_origin,
             split_testa_setups=split_testa_setups,
             strict_tool_map=strict_tool_map,
+            db_tool_numbers=db_tool_numbers,
         )
         converted_ops = int(split_res["converted_ops"])
         skipped_ops = int(split_res["skipped_ops"])
@@ -292,6 +303,7 @@ def run_postprocessor(
             no_toolchange=no_toolchange,
             local_origin=local_origin,
             strict_tool_map=strict_tool_map,
+            db_tool_numbers=db_tool_numbers,
         )
         converted_ops = int(rep.converted_ops)
         skipped_ops = int(rep.skipped_ops)
@@ -319,6 +331,7 @@ def run_postprocessor(
         "generated_files": generated_files,
         "machine_limits": {"x_max": MACHINE_X_MAX, "y_max": MACHINE_Y_MAX},
         "strict_tool_map": strict_tool_map,
+        "db_tool_map": {"T1_drill": db_tool_numbers[1], "T2_rough": db_tool_numbers[2], "T3_finish": db_tool_numbers[3]},
     }
 
 
@@ -335,6 +348,9 @@ def _build_cli() -> argparse.ArgumentParser:
     ap.add_argument("--single-testa-setup", action="store_true", help="Use one dedicated setup for both testas")
     ap.add_argument("--split-by-part-setup", action="store_true", help="Emit one .ngc per part/setup")
     ap.add_argument("--no-strict-tool-map", action="store_true", help="Allow fallback tool for unknown operation kinds")
+    ap.add_argument("--db-tool-drill", type=int, help="Tool-db number to use for logical T1 (drill)")
+    ap.add_argument("--db-tool-rough", type=int, help="Tool-db number to use for logical T2 (roughing)")
+    ap.add_argument("--db-tool-finish", type=int, help="Tool-db number to use for logical T3 (finishing)")
     return ap
 
 
@@ -352,6 +368,9 @@ if __name__ == "__main__":
         split_testa_setups=not args.single_testa_setup,
         split_by_part_setup=args.split_by_part_setup,
         strict_tool_map=not args.no_strict_tool_map,
+        db_tool_drill=args.db_tool_drill,
+        db_tool_rough=args.db_tool_rough,
+        db_tool_finish=args.db_tool_finish,
     )
     print(json.dumps(res, indent=2))
 
