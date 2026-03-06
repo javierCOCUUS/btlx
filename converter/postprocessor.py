@@ -125,6 +125,7 @@ def _convert_split_by_part_setup(
     no_toolchange: bool,
     local_origin: bool,
     split_testa_setups: bool,
+    strict_tool_map: bool,
 ) -> dict[str, Any]:
     """
     Generate one G-code per part/setup:
@@ -214,6 +215,7 @@ def _convert_split_by_part_setup(
                     machine_profile=machine_profile,
                     no_toolchange=no_toolchange,
                     local_origin=local_origin,
+                    strict_tool_map=strict_tool_map,
                 )
                 total_converted += int(rep.converted_ops)
                 total_skipped += int(rep.skipped_ops)
@@ -247,6 +249,7 @@ def run_postprocessor(
     local_origin: bool = False,
     split_testa_setups: bool = True,
     split_by_part_setup: bool = False,
+    strict_tool_map: bool = True,
 ) -> dict[str, Any]:
     """
     Convert BTLx to Mach3 G-code and optionally emit setup report.
@@ -273,6 +276,7 @@ def run_postprocessor(
             no_toolchange=no_toolchange,
             local_origin=local_origin,
             split_testa_setups=split_testa_setups,
+            strict_tool_map=strict_tool_map,
         )
         converted_ops = int(split_res["converted_ops"])
         skipped_ops = int(split_res["skipped_ops"])
@@ -287,6 +291,7 @@ def run_postprocessor(
             machine_profile=machine_profile,
             no_toolchange=no_toolchange,
             local_origin=local_origin,
+            strict_tool_map=strict_tool_map,
         )
         converted_ops = int(rep.converted_ops)
         skipped_ops = int(rep.skipped_ops)
@@ -313,6 +318,7 @@ def run_postprocessor(
         "split_by_part_setup": split_by_part_setup,
         "generated_files": generated_files,
         "machine_limits": {"x_max": MACHINE_X_MAX, "y_max": MACHINE_Y_MAX},
+        "strict_tool_map": strict_tool_map,
     }
 
 
@@ -328,6 +334,7 @@ def _build_cli() -> argparse.ArgumentParser:
     ap.add_argument("--local-origin", action="store_true", help="Normalize XY per part")
     ap.add_argument("--single-testa-setup", action="store_true", help="Use one dedicated setup for both testas")
     ap.add_argument("--split-by-part-setup", action="store_true", help="Emit one .ngc per part/setup")
+    ap.add_argument("--no-strict-tool-map", action="store_true", help="Allow fallback tool for unknown operation kinds")
     return ap
 
 
@@ -344,6 +351,7 @@ if __name__ == "__main__":
         local_origin=args.local_origin,
         split_testa_setups=not args.single_testa_setup,
         split_by_part_setup=args.split_by_part_setup,
+        strict_tool_map=not args.no_strict_tool_map,
     )
     print(json.dumps(res, indent=2))
 

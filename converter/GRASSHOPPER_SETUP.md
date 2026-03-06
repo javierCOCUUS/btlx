@@ -13,6 +13,7 @@ Crea un componente GhPython y define estos **inputs**:
 - `local_origin` (bool)
 - `split_testa_setups` (bool)
 - `split_by_part_setup` (bool)
+- `strict_tool_map` (bool)
 
 Define estos **outputs**:
 - `ok`
@@ -37,6 +38,7 @@ en el editor del componente GhPython.
 - `local_origin`: `False`
 - `split_testa_setups`: `True`
 - `split_by_part_setup`: `False` (pon `True` para sacar un .ngc por viga+setup)
+- `strict_tool_map`: `True` (recomendado: falla si hay operación sin mapeo T1/T2/T3)
 
 Notas:
 - Si conectas `tools_json_path` con tu `tools.json` de Fusion, el post usa RPM, feed, plunge, ramp feed, rampa y pasos de mecanizado cuando estén definidos.

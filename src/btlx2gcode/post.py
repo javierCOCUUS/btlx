@@ -51,6 +51,48 @@ DEFAULT_TOOLSET = {
 
 _XY_TOKEN_RE = re.compile(r"([XY])\s*([-+]?\d*\.?\d+)")
 
+# Fixed machine policy requested by user:
+#   T1 = drill
+#   T2 = roughing
+#   T3 = finishing
+TOOL_KIND_MAP = {
+    # Drill
+    "Drilling": TOOL_DRILL,
+    # Roughing
+    "Slot": TOOL_FLAT,
+    "Mortise": TOOL_FLAT,
+    "HouseMortise": TOOL_FLAT,
+    "Lap": TOOL_FLAT,
+    "JackRafterCut": TOOL_FLAT,
+    "BirdsMouth": TOOL_FLAT,
+    "DoubleCut": TOOL_FLAT,
+    "TyroleanDovetail": TOOL_FLAT,
+    "Dovetail": TOOL_FLAT,
+    "DovetailMortise": TOOL_FLAT,
+    "DovetailTenon": TOOL_FLAT,
+    "LogHouseJoint": TOOL_FLAT,
+    "House": TOOL_FLAT,
+    "StepJoint": TOOL_FLAT,
+    "StepJointNotch": TOOL_FLAT,
+    "ScarfJoint": TOOL_FLAT,
+    "SimpleScarf": TOOL_FLAT,
+    "Aperture": TOOL_FLAT,
+    "RidgeValleyCut": TOOL_FLAT,
+    "Planing": TOOL_FLAT,
+    # Finishing
+    "Tenon": TOOL_FINISH,
+    "NailContour": TOOL_FINISH,
+    "Outline": TOOL_FINISH,
+    "FreeContour": TOOL_FINISH,
+    "Marking": TOOL_FINISH,
+    "Text": TOOL_FINISH,
+    "LongitudinalCut": TOOL_FINISH,
+    "ProfileHead": TOOL_FINISH,
+    "ProfileCambered": TOOL_FINISH,
+    "Chamfer": TOOL_FINISH,
+    "RoundArch": TOOL_FINISH,
+}
+
 
 def _num(params: dict, key: str, default: float = 0.0) -> float:
     v = params.get(key, default)
@@ -789,6 +831,10 @@ def _skip(report: ConversionReport, kind: str) -> None:
     report.skipped_by_kind[kind] = report.skipped_by_kind.get(kind, 0) + 1
 
 
+def _mapped_tool_for_kind(kind: str) -> int | None:
+    return TOOL_KIND_MAP.get(kind)
+
+
 def _normalize_part_xy(lines: list[str]) -> list[str]:
     base_x: float | None = None
     base_y: float | None = None
@@ -830,6 +876,7 @@ def convert_file(
     machine_profile: str = "generic",
     no_toolchange: bool = False,
     local_origin: bool = False,
+    strict_tool_map: bool = False,
 ) -> ConversionReport:
     program = parse_btlx(input_path)
     toolset = _load_toolset(tools_json_path)
@@ -842,6 +889,11 @@ def convert_file(
     for part in program.parts:
         part_lines: list[str] = [f"(Part {part.part_id} L={part.length:.3f} W={part.width:.3f} H={part.height:.3f})"]
         for op in part.operations:
+            mapped_tool = _mapped_tool_for_kind(op.kind)
+            if strict_tool_map and mapped_tool is None:
+                raise ValueError(
+                    f"Operacion sin mapeo de herramienta (strict_tool_map): kind={op.kind}, part={part.part_id}, op={op.name}"
+                )
             flat_tool = toolset[TOOL_FLAT]
             finish_tool = toolset[TOOL_FINISH]
             if op.kind == "Drilling":

@@ -10,6 +10,7 @@ Inputs expected in Grasshopper component:
 - no_toolchange (bool)
 - local_origin (bool)
 - split_by_part_setup (bool)
+- strict_tool_map (bool)
 - run (bool)
 
 Outputs:
@@ -49,6 +50,7 @@ if run:
             local_origin=bool(local_origin),
             split_testa_setups=True,
             split_by_part_setup=bool(split_by_part_setup),
+            strict_tool_map=bool(strict_tool_map) if strict_tool_map is not None else True,
         )
         ok = True
         message = "OK"

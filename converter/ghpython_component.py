@@ -13,6 +13,7 @@ Inputs expected in Grasshopper:
 - local_origin (bool)
 - split_testa_setups (bool)
 - split_by_part_setup (bool)
+- strict_tool_map (bool)
 
 Outputs:
 - ok (bool)
@@ -67,6 +68,7 @@ if run:
 
         setup_flag = True if split_testa_setups is None else bool(split_testa_setups)
         split_part_setup_flag = False if split_by_part_setup is None else bool(split_by_part_setup)
+        strict_tool_flag = True if strict_tool_map is None else bool(strict_tool_map)
 
         result = run_postprocessor(
             input_btlx=btlx_path,
@@ -79,6 +81,7 @@ if run:
             local_origin=bool(local_origin),
             split_testa_setups=setup_flag,
             split_by_part_setup=split_part_setup_flag,
+            strict_tool_map=strict_tool_flag,
         )
 
         ok = True
