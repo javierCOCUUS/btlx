@@ -9,7 +9,9 @@ Uses the converter in src/btlx2gcode/post.py and adds:
 from __future__ import annotations
 
 import argparse
+import importlib
 import importlib.util
+import inspect
 import json
 import sys
 import tempfile
@@ -30,7 +32,29 @@ if str(THIS_DIR) not in sys.path:
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from btlx2gcode.post import convert_file  # type: ignore
+def _load_post_module():
+    # Force-load local btlx2gcode.post from this repo on every call.
+    # Rhino/GhPython keeps module state alive aggressively; reloading here avoids stale convert_file.
+    sys.modules.pop("btlx2gcode.post", None)
+    sys.modules.pop("btlx2gcode", None)
+    return importlib.import_module("btlx2gcode.post")
+
+
+def _call_convert_file(**kwargs):
+    """
+    Call convert_file with only the kwargs supported by currently loaded module.
+    This avoids hard failures when Rhino session has a stale cached btlx2gcode.post.
+    """
+    post_mod = _load_post_module()
+    convert_file = post_mod.convert_file  # type: ignore[attr-defined]
+    try:
+        sig = inspect.signature(convert_file)
+        accepted = set(sig.parameters.keys())
+        filtered = {k: v for k, v in kwargs.items() if k in accepted}
+        return convert_file(**filtered)
+    except Exception:
+        # Fall back to direct call to preserve current behavior on unexpected signature errors.
+        return convert_file(**kwargs)
 
 
 def _load_local_module(name: str, filename: str):
@@ -85,9 +109,24 @@ def _find_processings(part_el: ET.Element) -> ET.Element | None:
     return None
 
 
-def _build_part_setup_index(parts: list[dict[str, Any]], split_testa_setups: bool) -> dict[tuple[str, int], int]:
+def _build_part_setup_index(
+    parts: list[dict[str, Any]],
+    split_testa_setups: bool,
+    optimize_flips: bool = False,
+    through_cut_tol_mm: float = 0.5,
+    preferred_primary_face: int = 2,
+    consolidate_opposite_cuts: bool = False,
+    auto_min_setups: bool = False,
+) -> dict[tuple[str, int], int]:
     """Map (part_number, op_index) -> setup."""
-    policy = SetupPolicy(split_testa_setups=split_testa_setups)
+    policy = SetupPolicy(
+        split_testa_setups=split_testa_setups,
+        optimize_flips=optimize_flips,
+        through_cut_tol_mm=through_cut_tol_mm,
+        preferred_primary_face=preferred_primary_face,
+        consolidate_opposite_cuts=consolidate_opposite_cuts,
+        auto_min_setups=auto_min_setups,
+    )
     plan = build_setup_plan(parts, policy=policy)
     out: dict[tuple[str, int], int] = {}
     for sid, grp in plan.groups.items():
@@ -127,16 +166,48 @@ def _convert_split_by_part_setup(
     split_testa_setups: bool,
     strict_tool_map: bool,
     db_tool_numbers: dict[int, int] | None,
+    continuous_cut: bool,
+    swap_face_1_2: bool,
+    jack_rot90: bool,
+    jack_angle_mode: str,
+    optimize_flips: bool,
+    through_cut_tol_mm: float,
+    preferred_primary_face: int,
+    consolidate_opposite_cuts: bool,
+    auto_min_setups: bool,
+    remap_machine_axes: bool,
+    origin_face2_center: bool,
+    origin_face2_start_center: bool,
 ) -> dict[str, Any]:
     """
     Generate one G-code per part/setup:
       <stem>_part<NNN>_setup<S>.ngc
     """
     parts = parse_btlx(input_btlx)
-    setup_index = _build_part_setup_index(parts, split_testa_setups=split_testa_setups)
+    setup_index = _build_part_setup_index(
+        parts,
+        split_testa_setups=split_testa_setups,
+        optimize_flips=optimize_flips,
+        through_cut_tol_mm=through_cut_tol_mm,
+        preferred_primary_face=preferred_primary_face,
+        consolidate_opposite_cuts=consolidate_opposite_cuts,
+        auto_min_setups=auto_min_setups,
+    )
 
     # Optional setup report from same decision table.
-    setup_report_payload = plan_to_json(build_setup_plan(parts, policy=SetupPolicy(split_testa_setups=split_testa_setups)))
+    setup_report_payload = plan_to_json(
+        build_setup_plan(
+            parts,
+            policy=SetupPolicy(
+                split_testa_setups=split_testa_setups,
+                optimize_flips=optimize_flips,
+                through_cut_tol_mm=through_cut_tol_mm,
+                preferred_primary_face=preferred_primary_face,
+                consolidate_opposite_cuts=consolidate_opposite_cuts,
+                auto_min_setups=auto_min_setups,
+            ),
+        )
+    )
 
     tree = ET.parse(input_btlx)
     root = tree.getroot()
@@ -153,6 +224,18 @@ def _convert_split_by_part_setup(
     stem = output_ngc.stem
     out_dir = output_ngc.parent
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Remove stale split outputs from previous runs of the same stem.
+    # Without this, users can see old part/setup files and think they were regenerated.
+    for old in out_dir.glob(f"{stem}_part*_setup*.ngc"):
+        try:
+            old.unlink()
+        except Exception:
+            pass
+    for old in out_dir.glob(f"{stem}_part*_setup*.report.json"):
+        try:
+            old.unlink()
+        except Exception:
+            pass
 
     with tempfile.TemporaryDirectory(prefix="btlx_split_") as td:
         tmp_dir = Path(td)
@@ -208,7 +291,7 @@ def _convert_split_by_part_setup(
 
                 out_ngc = out_dir / f"{stem}_part{part_number}_setup{sid}.ngc"
                 out_rep = out_dir / f"{stem}_part{part_number}_setup{sid}.report.json" if report_json else None
-                rep = convert_file(
+                rep = _call_convert_file(
                     input_path=str(tmp_btlx),
                     output_path=str(out_ngc),
                     report_path=str(out_rep) if out_rep else None,
@@ -218,6 +301,13 @@ def _convert_split_by_part_setup(
                     local_origin=local_origin,
                     strict_tool_map=strict_tool_map,
                     db_tool_numbers=db_tool_numbers,
+                    continuous_cut=continuous_cut,
+                    swap_face_1_2=swap_face_1_2,
+                    jack_rot90=jack_rot90,
+                    jack_angle_mode=jack_angle_mode,
+                    remap_machine_axes=remap_machine_axes,
+                    origin_face2_center=origin_face2_center,
+                    origin_face2_start_center=origin_face2_start_center,
                 )
                 total_converted += int(rep.converted_ops)
                 total_skipped += int(rep.skipped_ops)
@@ -252,6 +342,19 @@ def run_postprocessor(
     split_testa_setups: bool = True,
     split_by_part_setup: bool = False,
     strict_tool_map: bool = True,
+    continuous_cut: bool = True,
+    swap_face_1_2: bool = False,
+    jack_rot90: bool = False,
+    jack_angle_mode: str = "legacy",
+    check_machine_limits: bool = True,
+    optimize_flips: bool = False,
+    through_cut_tol_mm: float = 0.5,
+    preferred_primary_face: int = 2,
+    consolidate_opposite_cuts: bool = False,
+    auto_min_setups: bool = False,
+    remap_machine_axes: bool = True,
+    origin_face2_center: bool = False,
+    origin_face2_start_center: bool = False,
     db_tool_drill: int | None = None,
     db_tool_rough: int | None = None,
     db_tool_finish: int | None = None,
@@ -269,12 +372,15 @@ def run_postprocessor(
 
     out.parent.mkdir(parents=True, exist_ok=True)
     parsed_parts = parse_btlx(inp)
-    _validate_machine_limits(parsed_parts)
+    if check_machine_limits:
+        _validate_machine_limits(parsed_parts)
     db_tool_numbers = {
         1: int(db_tool_drill) if db_tool_drill is not None else 1,
         2: int(db_tool_rough) if db_tool_rough is not None else 2,
         3: int(db_tool_finish) if db_tool_finish is not None else 3,
     }
+    post_mod = _load_post_module()
+    resolved_toolset = post_mod._load_toolset(tools_json, db_tool_numbers=db_tool_numbers)  # type: ignore[attr-defined]
 
     if split_by_part_setup:
         split_res = _convert_split_by_part_setup(
@@ -288,13 +394,25 @@ def run_postprocessor(
             split_testa_setups=split_testa_setups,
             strict_tool_map=strict_tool_map,
             db_tool_numbers=db_tool_numbers,
+            continuous_cut=continuous_cut,
+            swap_face_1_2=swap_face_1_2,
+            jack_rot90=jack_rot90,
+            jack_angle_mode=jack_angle_mode,
+            optimize_flips=optimize_flips,
+            through_cut_tol_mm=through_cut_tol_mm,
+            preferred_primary_face=int(preferred_primary_face),
+            consolidate_opposite_cuts=bool(consolidate_opposite_cuts),
+            auto_min_setups=bool(auto_min_setups),
+            remap_machine_axes=remap_machine_axes,
+            origin_face2_center=origin_face2_center,
+            origin_face2_start_center=origin_face2_start_center,
         )
         converted_ops = int(split_res["converted_ops"])
         skipped_ops = int(split_res["skipped_ops"])
         setup_payload = split_res["setup_payload"]
         generated_files = split_res["generated_files"]
     else:
-        rep = convert_file(
+        rep = _call_convert_file(
             input_path=str(inp),
             output_path=str(out),
             report_path=report_json,
@@ -304,10 +422,24 @@ def run_postprocessor(
             local_origin=local_origin,
             strict_tool_map=strict_tool_map,
             db_tool_numbers=db_tool_numbers,
+            continuous_cut=continuous_cut,
+            swap_face_1_2=swap_face_1_2,
+            jack_rot90=jack_rot90,
+            jack_angle_mode=jack_angle_mode,
+            remap_machine_axes=remap_machine_axes,
+            origin_face2_center=origin_face2_center,
+            origin_face2_start_center=origin_face2_start_center,
         )
         converted_ops = int(rep.converted_ops)
         skipped_ops = int(rep.skipped_ops)
-        policy = SetupPolicy(split_testa_setups=split_testa_setups)
+        policy = SetupPolicy(
+            split_testa_setups=split_testa_setups,
+            optimize_flips=optimize_flips,
+            through_cut_tol_mm=through_cut_tol_mm,
+            preferred_primary_face=int(preferred_primary_face),
+            consolidate_opposite_cuts=bool(consolidate_opposite_cuts),
+            auto_min_setups=bool(auto_min_setups),
+        )
         plan = build_setup_plan(parsed_parts, policy=policy)
         setup_payload = plan_to_json(plan)
         generated_files = []
@@ -331,7 +463,26 @@ def run_postprocessor(
         "generated_files": generated_files,
         "machine_limits": {"x_max": MACHINE_X_MAX, "y_max": MACHINE_Y_MAX},
         "strict_tool_map": strict_tool_map,
+        "continuous_cut": continuous_cut,
+        "swap_face_1_2": bool(swap_face_1_2),
+        "jack_rot90": bool(jack_rot90),
+        "jack_angle_mode": str(jack_angle_mode),
+        "check_machine_limits": check_machine_limits,
+        "optimize_flips": optimize_flips,
+        "through_cut_tol_mm": through_cut_tol_mm,
+        "preferred_primary_face": int(preferred_primary_face),
+        "consolidate_opposite_cuts": bool(consolidate_opposite_cuts),
+        "auto_min_setups": bool(auto_min_setups),
+        "remap_machine_axes": remap_machine_axes,
+        "origin_face2_center": origin_face2_center,
+        "origin_face2_start_center": origin_face2_start_center,
         "db_tool_map": {"T1_drill": db_tool_numbers[1], "T2_rough": db_tool_numbers[2], "T3_finish": db_tool_numbers[3]},
+        "tools_json_source": tools_json,
+        "resolved_tools": {
+            "T1": resolved_toolset.get(1),
+            "T2": resolved_toolset.get(2),
+            "T3": resolved_toolset.get(3),
+        },
     }
 
 
@@ -348,6 +499,24 @@ def _build_cli() -> argparse.ArgumentParser:
     ap.add_argument("--single-testa-setup", action="store_true", help="Use one dedicated setup for both testas")
     ap.add_argument("--split-by-part-setup", action="store_true", help="Emit one .ngc per part/setup")
     ap.add_argument("--no-strict-tool-map", action="store_true", help="Allow fallback tool for unknown operation kinds")
+    ap.add_argument("--discontinuous-cut", action="store_true", help="Use conservative retract between each stripe/pass")
+    ap.add_argument("--swap-face-1-2", action="store_true", help="Mirror operations on faces 1/2 (compatibility mode)")
+    ap.add_argument("--jack-rot90", action="store_true", help="Rotate JackRafterCut frame by 90deg (compatibility mode)")
+    ap.add_argument(
+        "--jack-angle-mode",
+        choices=["legacy", "raw", "plus90", "minus90", "mirror", "auto90"],
+        default="legacy",
+        help="Angle interpretation mode for JackRafterCut/BirdsMouth/DoubleCut",
+    )
+    ap.add_argument("--ignore-machine-limits", action="store_true", help="Do not validate part Length/Width against machine envelope")
+    ap.add_argument("--optimize-flips", action="store_true", help="Move through-cut operations to setup 1 when possible")
+    ap.add_argument("--through-cut-tol-mm", type=float, default=0.5, help="Tolerance to detect full-depth through cuts")
+    ap.add_argument("--preferred-primary-face", type=int, choices=[1, 2], default=2, help="Preferred main machining face for flip optimization (1=bottom, 2=top)")
+    ap.add_argument("--consolidate-opposite-cuts", action="store_true", help="Aggressively move cut-like ops between faces 1/2 into preferred face setup")
+    ap.add_argument("--auto-min-setups", action="store_true", help="Analyze each part and auto-consolidate safe operations into dominant setup")
+    ap.add_argument("--preview-btlx-axes", action="store_true", help="Disable machine-axis remap (for visual comparison with BTLx/Rhino)")
+    ap.add_argument("--origin-face2-center", action="store_true", help="Shift XY so (0,0) is center of face 2 for each part")
+    ap.add_argument("--origin-face2-start-center", action="store_true", help="Shift XY so (0,0) is center of start end on face 2")
     ap.add_argument("--db-tool-drill", type=int, help="Tool-db number to use for logical T1 (drill)")
     ap.add_argument("--db-tool-rough", type=int, help="Tool-db number to use for logical T2 (roughing)")
     ap.add_argument("--db-tool-finish", type=int, help="Tool-db number to use for logical T3 (finishing)")
@@ -368,6 +537,19 @@ if __name__ == "__main__":
         split_testa_setups=not args.single_testa_setup,
         split_by_part_setup=args.split_by_part_setup,
         strict_tool_map=not args.no_strict_tool_map,
+        continuous_cut=not args.discontinuous_cut,
+        swap_face_1_2=args.swap_face_1_2,
+        jack_rot90=args.jack_rot90,
+        jack_angle_mode=args.jack_angle_mode,
+        check_machine_limits=not args.ignore_machine_limits,
+        optimize_flips=args.optimize_flips,
+        through_cut_tol_mm=float(args.through_cut_tol_mm),
+        preferred_primary_face=int(args.preferred_primary_face),
+        consolidate_opposite_cuts=bool(args.consolidate_opposite_cuts),
+        auto_min_setups=bool(args.auto_min_setups),
+        remap_machine_axes=not args.preview_btlx_axes,
+        origin_face2_center=args.origin_face2_center,
+        origin_face2_start_center=args.origin_face2_start_center,
         db_tool_drill=args.db_tool_drill,
         db_tool_rough=args.db_tool_rough,
         db_tool_finish=args.db_tool_finish,
