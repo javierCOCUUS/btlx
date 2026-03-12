@@ -902,9 +902,6 @@ def _lap(lines: list[str], op: Operation, part: Part, toolset: dict[int, dict[st
     step_down = _tool_stepdown(flat)
     if stepover <= 0.0 or step_down <= 0.0:
         return
-    # Cleanup overtravel only on open stock boundaries.
-    # Must scale with cutter radius; tiny fixed values do not clean corners with large tools (e.g. D32).
-    finish_open_ext = max(1.0, flat["diameter_mm"] * 0.55)
     open_tol = max(0.5, min(flat["diameter_mm"] * 0.25, 4.0))
 
     def _lerp(a: tuple[float, float], b: tuple[float, float], t: float) -> tuple[float, float]:
@@ -919,6 +916,18 @@ def _lap(lines: list[str], op: Operation, part: Part, toolset: dict[int, dict[st
             or abs(py - part.width) <= open_tol
         )
 
+    def _boundary_tag(pt: tuple[float, float]) -> str | None:
+        px, py = pt
+        if abs(px - 0.0) <= open_tol:
+            return "x0"
+        if abs(px - part.length) <= open_tol:
+            return "xL"
+        if abs(py - 0.0) <= open_tol:
+            return "y0"
+        if abs(py - part.width) <= open_tol:
+            return "yW"
+        return None
+
     stripe_count = max(2, int(math.ceil(width / stepover)) + 1)
     ts = [i / (stripe_count - 1) for i in range(stripe_count)]
 
@@ -931,21 +940,6 @@ def _lap(lines: list[str], op: Operation, part: Part, toolset: dict[int, dict[st
             b = _lerp(p3, p2, t)
             sx, sy = a
             ex, ey = b
-            dx = ex - sx
-            dy = ey - sy
-            seg_len = math.hypot(dx, dy)
-            if seg_len > 1e-9:
-                ux_line = dx / seg_len
-                uy_line = dy / seg_len
-                # Extend at geometric "a" side only on upper half (towards p1/p2 edge),
-                # to clean the open upper corner without creating the lower overcut.
-                if t >= 0.5 and _is_open_boundary((sx, sy)):
-                    sx -= ux_line * finish_open_ext
-                    sy -= uy_line * finish_open_ext
-                # Keep extension on geometric "b" side.
-                if _is_open_boundary((ex, ey)):
-                    ex += ux_line * finish_open_ext
-                    ey += uy_line * finish_open_ext
             if idx % 2 == 1:
                 sx, sy, ex, ey = ex, ey, sx, sy
             if idx == 0:
@@ -965,31 +959,22 @@ def _lap(lines: list[str], op: Operation, part: Part, toolset: dict[int, dict[st
                 )
         lines.append(f"G0 Z{SAFE_Z:.3f}")
 
-    # Final cleanup contour on lap boundary with edge overtravel.
-    # This reaches corner stock left by cylindrical cutter at acute vertices.
-    corner_ext = max(0.5, flat["diameter_mm"] * 0.35)
+    # Final cleanup contour on exact lap boundary.
+    lines.extend(
+        [
+            f"G0 X{p0[0]:.3f} Y{p0[1]:.3f}",
+            f"G1 Z{-depth:.3f} F{flat['plunge']:.1f}",
+            f"G1 X{p1[0]:.3f} Y{p1[1]:.3f} F{flat['feed']:.1f}",
+            f"G1 X{p2[0]:.3f} Y{p2[1]:.3f} F{flat['feed']:.1f}",
+            f"G1 X{p3[0]:.3f} Y{p3[1]:.3f} F{flat['feed']:.1f}",
+            f"G1 X{p0[0]:.3f} Y{p0[1]:.3f} F{flat['feed']:.1f}",
+            f"G0 Z{SAFE_Z:.3f}",
+        ]
+    )
 
-    def _edge_over(a: tuple[float, float], b: tuple[float, float], ext: float) -> tuple[tuple[float, float], tuple[float, float]]:
-        dx = b[0] - a[0]
-        dy = b[1] - a[1]
-        ln = math.hypot(dx, dy)
-        if ln < 1e-9:
-            return a, b
-        ux = dx / ln
-        uy = dy / ln
-        return (a[0] - ux * ext, a[1] - uy * ext), (b[0] + ux * ext, b[1] + uy * ext)
-
-    edges = [(p0, p1), (p1, p2), (p2, p3), (p3, p0)]
-    for a, b in edges:
-        s, e = _edge_over(a, b, corner_ext)
-        lines.extend(
-            [
-                f"G0 X{s[0]:.3f} Y{s[1]:.3f}",
-                f"G1 Z{-depth:.3f} F{flat['plunge']:.1f}",
-                f"G1 X{e[0]:.3f} Y{e[1]:.3f} F{flat['feed']:.1f}",
-                f"G0 Z{SAFE_Z:.3f}",
-            ]
-        )
+    # NOTE:
+    # Open-edge overtravel was removed for safety because it can overcut
+    # adjacent stock faces depending on setup orientation.
 
 
 def _jack_rafter_cut(
